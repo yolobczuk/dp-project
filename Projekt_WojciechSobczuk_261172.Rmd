@@ -1,0 +1,333 @@
+---
+title: "Projekt z Przygotowania Danych"
+author: "Wojciech Sobczuk"
+output:
+  html_document:
+    df_print: paged
+---
+
+Deklaracja bibliotek
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = F, message = F)
+```
+
+```{r include = F}
+library(dplyr)
+library(ggplot2)
+library(car)
+#install.packages("VIM")
+library("VIM")
+#install.packages("readxl")
+library(readxl)
+#install.packages("psych")
+library("psych")
+library(tidyverse)
+library(EnvStats)
+library(forcats)
+```
+
+
+
+```{r}
+piwo_dane <- read.csv2('recipeData.csv', sep = ',', dec='.')
+id_dane <- read.csv2('styleData.csv', sep = ',')
+```
+
+
+## Opis celu badania
+
+Klasyfikacja metody warzenia piwa na podstawie parametrów piwa.
+
+## Opis zmiennych występujących w zbiorze danych
+
+* `Beer ID` - identyfikator danego rekordu, skala nominalna, brak jednostki
+* `Name` - nazwa piwa, skala nominalna, brak jednostki
+* `URL` - strona internetowa danego piwa, skala nominalna, brak jednostki
+* `Style` - styl piwa (w pewnym sensie jego typ), skala nominalna, brak jednostki
+* `Style ID` - identyfikator stylu piwa, skala nominalna, brak jednostki
+* `Size (L)` - objętość wywarzonego piwa, skala ilorazowa, jednostka - litry
+* `OG` - miara obiektów stałych (stan materii) w brzeczce przez fermentacją alkoholową, skala przedziałowa, mierzona jest poprzez gęstość brzeczki w relacji do wody (ma ona OG równe 1)
+* `FG` - miara obiektów stałych (stan materii) w brzeczce po fermentacji alkoholowej, skala przedziałowa, mierzona jest poprzez gęstość brzeczki w relacji do wody (ma ona FG równe 1)
+* `ABV` - objętość alkoholu, skala ilorazowa, procenty
+* `IBU` - międzynarodowa jednostka goryczy, skala przedziałowa, wartość absorpcji przez próbkę fali świetlnej o długości 275 nanometrów.
+* `Color` - kolor piwa, skala ilorazowa, jednostka to współczynnik roztworzenia razy absorbancja światła w 430 nanometrach w jednocentymetrowej kuwecie pomiarowej
+* `BoilSize` - objętość płynu na początku gotowania piwa, skala ilorazowa, litry
+* `BoilTime` - czas gotowania brzeczki, skala ilorazowa, sekundy
+* `BoilGravity` - miara obiektów stałych (stan materii) w brzeczce przed wrzeniem, skala przedziałowa, mierzona jest poprzez gęstość brzeczki w relacji do wody (ma ona Gravity równe 1)
+* `Efficiency` - wydajność wydobywania zacieru piwnego, skala ilorazowa, procent wydobytego cukru
+* `MashThickness` - ilość wody na funt zboża, skala ilorazowa, litry na funty
+* `SugarScale` - skala używana do ustalenia koncentracji rozpuszczonych ciał stałych w brzeczce, skala nominalna (ogólnie, w przypadku naszego zbioru danych dychotomiczna), brak jednostki
+* `BrewMethod` - zmienna objaśniana w moim problemie badawczym, technika warzenia piwa, skala nominalna, brak jednostki
+* `PitchRate` - ilość drożdży dodana do fermentora do ostudzonej brzeczki, skala przedziałowa, miliony komórek na mililitr na stopnie Plato
+* `PrimingTemp` - temperatura pod którą nastąpiła refermentacja piwa (nadająca mu smak i bąbelki), skala przedziałowa, stopnie Fahrenheita
+* `PrimingMethod` - metoda refermentacji, skala nominalna, brak jednostki
+* `PrimingAmount` - ilość cukru dodanego w procesie refermentacji, skala nominalna, brak jednostki
+* `UserID` - identyfikator użytkownika udostępniającego swoje piwo, skala nominalna, brak jednostki
+
+
+# Wstępna analiza typów zmiennych
+
+```{r}
+str(piwo_dane)
+```
+
+Powyższe podsumowanie pokazuje, że kilka zmiennych zostało niepoprawnie zintepretowane jako string (np. Style, BoilGravity, MashThickness czy PitchRate). Przekonwertuje te zmienne do poprawnych typów (numeric/factor)
+
+# Konwersja zmiennych
+
+```{r}
+piwo_dane <- piwo_dane %>% mutate(Style = as.factor(Style), BoilGravity = as.numeric(BoilGravity), MashThickness = as.numeric(MashThickness), SugarScale = as.factor(SugarScale), BrewMethod = as.factor(BrewMethod), PitchRate = as.numeric(PitchRate), PrimaryTemp = as.numeric(PrimaryTemp), PrimingMethod = as.factor(PrimingMethod), PrimingAmount = as.factor(PrimingAmount), UserId = as.factor(UserId))
+```
+
+Do przedstawienia rozkładu zmiennych jakościowych użyję funkcji `summary` a do przedstawienia statystyk opisowych zmiennych ilościowych funkcji `describe` z biblioteki `psych`. Nie będę przedstawiać zmiennych `Name` oraz `URL`  gdyż są one zmiennymi typu string oraz zmiennej BeerID gdyż służy ona jedynie jako identyfikator i nie ma żadnej interpretacji.
+
+```{r}
+summary(piwo_dane %>% select(Style, SugarScale, BrewMethod, PrimingMethod, PrimingAmount))
+```
+
+Po powyższym podsumowaniu widać, że wartość N/A jest zapisana jako kategoria dla zmiennych `PrimingAmount` i `PrimingMethod`. Sprawdzę, czy podobnie wygląda sytuacja dla zmiennej `Style`, dla której moglibyśmy to przeoczyć i mogłaby się ukryć w zakładce (Other).
+
+```{r}
+levels(piwo_dane$Style)
+```
+
+Okazuje się, że "N/A" jest kategorią również dla zmiennej `Style`. Poprawię kodowanie tych poziomów.
+
+```{r}
+piwo_dane$Style[piwo_dane$Style == 'N/A'] <- NA
+piwo_dane$PrimingAmount[piwo_dane$PrimingAmount == 'N/A'] <- NA
+piwo_dane$PrimingMethod[piwo_dane$PrimingMethod == 'N/A'] <- NA
+
+piwo_dane$Style <- as.factor(piwo_dane$Style)
+piwo_dane$PrimingAmount <- as.factor(piwo_dane$PrimingAmount)
+piwo_dane$PrimingMethod <- as.factor(piwo_dane$PrimingMethod)
+```
+
+Sprawdzę, czy na pewno poziomy są odpowiednio zakodowane
+
+```{r}
+summary(piwo_dane %>% select(Style, PrimingAmount))
+```
+
+Wszytko się teraz zgadza. Przejdę do podsumowania zmiennych numerycznych.
+
+```{r}
+describe(piwo_dane %>% select(-Style, -SugarScale, -BrewMethod, -Name, -URL, -PrimingAmount, -BeerID, -PrimingMethod))
+```
+
+# Wizualizacja zmiennych
+
+Rozpocznę od wizualizacji zmiennych numerycznych:
+
+```{r}
+plots1 <- ggplot(gather(keep(piwo_dane, is.numeric)), aes(x = value)) +  
+  geom_histogram(colour = 1, fill = "blue")+
+  ggtitle("Rozkłady zmiennych zbioru danych")+
+  ylab("Częstość występowania")+
+  xlab("Wartość zmiennej")+
+  facet_wrap(~ key, scales = "free")
+plots1
+```
+
+Teraz wykonam wizualizację niektórych zmiennych kategorycznych:
+
+```{r}
+piwo_dane %>% select(SugarScale, BrewMethod) %>% gather()  %>% ggplot(aes(x = value)) +  
+  geom_histogram(colour = 1, fill = "blue",stat='count')+
+  ggtitle("Rozkłady zmiennych zbioru danych")+
+  ylab("Częstość występowania")+
+  xlab("Wartość zmiennej")+
+  facet_wrap(~ key, scales = "free")
+
+```
+
+W wizualizacji powyżej widać jedynie dwie zmienne kategoryczne, ze względu na fakt, że zmienne `PrimingAmount`, `Style` oraz `PrimingMethod` przyjmowały bardzo dużo wartości i te wykresy były po prostu nieczytelne (zmienna Style była reprezentowana przez `StyleID`).
+
+To też prowadzi mnie do kolejnej sekcji czyli doboru zmiennych do badania. 
+
+# Wybór zmiennych do badania
+
+Ogólnie rzecz ujmując - chcę pozostawić w zbiorze danych zmienne sensowne i przydatne. Brzmi to bardzo ogólnikowo, ale postaram się rozwinąć co mam na myśli. Zmienne sensowne to takie, które w dobry sposób odzwierciedlą metodę warzenia piwa. Będą to fizykochemiczne parametry piwa takie jak IBU czy jego kolor oraz informacje o składnikach piwa, czyli OG czy FG. Zastanawiałem się nad sensownością uznania zmiennej identyfikującej użytkownika jako predyktor - może być tak, że dany użytkownik często produkuje konkretny rodzaj piwa. Sprawdzę więc jak często powtarzają się dane identyfikatory użytkowników forum.
+
+```{r}
+piwo_dane %>% select(UserId) %>% count(UserId) %>% arrange((desc(n))) %>% head(20)
+```
+
+Jak widać, niektóre z identyfikatorów często się powtarzają. W związku z tym ta zmienna może okazać się cennym predyktorem, więc uznaję ją za sensowną. Widać jednak, że jest tu dużo braków danych, ale to temat na osobny rozdział.
+
+Przejdę teraz do pojęcia przydatności zmiennej. Są to takie kolumny, które są w przydatnym formacie. Mówię tutaj o zmiennych numerycznych, przenoszą one dużo informacji i na pewno będą przydatne. Nie można powiedzieć tego samego o niektórych zmiennych kategorycznych oraz tekstowych. Takie kolumny jak `BeerID`, `Name`, `URL` nie przenoszą żadnej wartościowej informacji, którą można użyć w predykcji. Zmienna `PrimingAmount` ma zdecydowanie zbyt wiele kategorii, żeby można jej było z sukcesem użyć w analizie (dodatkowo, te wartości bardzo mocno różnią się skalą i jednostkami więc ciężko byłoby doprowadzić je do ładu). Dwie zmienne, nad którymi się zastanawiam to `Style` (i co za tym idzie `StyleID`) oraz `PrimingMethod`. Obie te zmienne mają dużo kategorii, ale potencjalnie mogą być przydatne jeśli chodzi o skuteczność klasyfikacji. Sprawdzę jak często powtarzają się najczęstsze warianty tych zmiennych.
+
+```{r}
+piwo_dane %>% select(PrimingMethod) %>% count(PrimingMethod) %>% arrange((desc(n))) %>% head(20)
+```
+
+W przypadku tej zmiennej widać, że jest to brudna zmienna, którą potencjalnie można doprowadzić do porządku. Byłby to żmudny proces, ale pozwoliłby nam on na uzyskanie wartościowej informacji. Znowu niestety pojawia się jednak temat braków danych - powrócimy do tematu pozostawienia tej zmiennej w zbiorze danych w odpowiednim rozdziale.
+
+```{r}
+piwo_dane %>% select(Style) %>% count(Style) %>% arrange((desc(n))) %>% head(20)
+```
+
+Widać, że jest dużo kategorii z wieloma powtórzeniami co sugeruje, że będzie to przydatna zmienna w kontekście naszego zbioru danych. 
+
+Podsumowując - bazując na moich dwóch kryteriach, do analizy pozostawię wszystkie zmienne poza zmiennymi `BeerID` (identyfikator piwa, nie wnosi żadnej informacji o piwie), `Name` (nazwa piwa, część informacji jest zachowana w zmiennej `Style`), `URL` (adres strony, na której umieszczone jest piwo, nie wnosi żadnej informacji) oraz `PrimingAmount` (brudna zmienna, bardzo ciężko byłoby doprowadzić ją do porządku).
+
+```{r}
+piwo_dane <- piwo_dane %>% select(-BeerID, -URL, -PrimingAmount, -Name)
+```
+
+# Imputacje braków danych
+
+W poprzednim rozdziale poruszyłem temat braków danych i nadszedł czas aby się nimi zająć.
+
+Analizę braków danych powinienem rozpocząć od sprawdzenia, czy wszystkie kolumny poprawnie kodują braki danych (szczególnie w przypadku factorów), ale wydrukowanie podstawowych statystyk utwierdziło mnie w przekonaniu, że wszystkie braki danych są kodowane tak jak być powinny.
+
+Z tego samego powodu wiem, które zmienne zawierają braki danych. Są to zmienne `BoilGravity`, `MashThickness`, `PitchRate`, `PrimaryTemp`, `PrimingMethod`, `Style` oraz `UserId`. Poniżej przedstawię ilość wartości brakujących dla każdej z tych zmiennych:
+
+```{r}
+opis <- describe(piwo_dane %>% select(-SugarScale, -BrewMethod))
+opis <- opis %>% select(n) %>% mutate(NAs = 73861-n, NAs.perc = 100*(NAs/73861)) %>% filter(NAs!=0) %>% select(-n)
+opis
+```
+
+Jak widać, zmienne te mają dosyć duży odsetek brakujących wartości (poza zmienną `BoilGravity` i `Style`).
+
+Jako zobrazowanie sytuacji z brakami danych wykonam wykres obrazujący ilość oraz występowanie braków danych.
+
+```{r}
+aggr(piwo_dane, col=c('white','red'),
+                   numbers=TRUE, sortVars=TRUE,
+                   labels=names(piwo_dane), cex.axis=0.6,
+                   cex.lab=1.5,
+                   gap=1, ylab=c('Braki',"Wzór braków"))
+```
+
+Należy teraz podjąć decyzję co zrobić z brakami danych. W przypadku zmiennej `Style`, mamy pod ręką identyfikator stylu, który nie ma braków - użyjemy go do zalepienia brakujących wartości tej zmiennej. Dla zmiennej `PrimingMethod` - moim zdaniem, mamy zbyt wiele braków danych aby móc sensownie ją imputować. Dodatkowo - mamy ciężar w postaci wyczyszczenia tej zmiennej. Czas spędzony nad czyszczeniem tej zmiennej nie byłby współmierny do efektu predykcyjnego - nie znamy ponad 90% prawdziwych wartości tej zmiennej, co może oznaczać, że nie jest ona tak istotna w całym procesie warzenia piwa. Zmienna `UserId` również jest nieco problematyczna - znamy jedynie 30% prawdziwych identyfikatorów użytkowników. Tutaj jednak sensownym będzie wproawdzenie identyfikatora `0`, który będzie zastępował wartość NA. Posługując się moimi wcześniejszymi kryteriami - czy jest to sensowne i przydatne? Wydaje mi się, że tak - stworzymy kategorię grupującą użytkowników anonimowych lub leniwych - tacy użytkownicy raczej nie umieszczaliby wielu receptur na piwo. Moim zdaniem, aktywni użytkownicy woleliby założyć konto (czyli mieć swój identyfikator) aby móc dyskutować na temat swoich wyrobów. Taka kategoryzacja może potencjalnie okazać się przydatna. W przypadku zmiennej `BoilGravity` posłużę się imputacją średnią, a dla zmiennych `MashThickness`, `PitchRate` oraz `PrimaryTemp` chciałem użyć imputacji metodą kNN, dla k = 272 (czyli pierwiastek z liczby obserwacji), ale niestety wykonanie funkcji imputującej trwało zbyt długo. Dlatego zrobię tutaj przerywnik Pythonowy  - wyeksportuję dane w formacie csv, podepne je do imputera w Pythonie i załaduję zimputowane zmienne do R (wiem że można wykonywać kod Pythonowy w R Markdownie, ale trochę boję się tego rozwiązania). Moje rozumowanie było takie, że dla `BoilGravity` tylko 4% wartości stanie się średnią, więc nie wpłynie ona znacząco na zdolność klasyfikacyjnej tej zmiennej, a metoda kNN jest ogólnie dobrą metodą, która da nam zróżnicowane wyniki.
+
+Rozpoczynamy proces imputacji
+
+```{r}
+piwo_dane <- piwo_dane %>% select(-Style, -PrimingMethod)
+piwo_dane <- merge(piwo_dane, id_dane, by.x = "StyleID", by.y = "StyleID")
+
+piwo_dane <- piwo_dane %>% select(-StyleID) %>% mutate(Style = as.factor(Style))
+levels(piwo_dane$Style)
+```
+
+Nie mamy wartości N/A dla zmiennej `Style`!
+
+```{r}
+
+piwo_dane$UserId <- fct_explicit_na(piwo_dane$UserId, "0")
+
+piwo_dane <- piwo_dane %>% mutate(BoilGravity=if_else(is.na(BoilGravity), mean(BoilGravity,na.rm = T), BoilGravity))
+
+write.table(piwo_dane,'piwo_dane.csv')
+
+piwo_dane <- read.csv2('piwo_dane_zimputowane.csv', sep = ',', dec='.')
+```
+
+Spójrzmy na braki danych
+
+```{r}
+aggr(piwo_dane, col=c('white','red'),
+                   numbers=TRUE, sortVars=TRUE,
+                   labels=names(piwo_dane), cex.axis=0.6,
+                   cex.lab=1.5,
+                   gap=1, ylab=c('Braki',"Wzór braków"))
+```
+
+Nie mamy braków danych!
+
+# Transformacja zmiennych
+
+Zanim przejdziemy do analizy wartości skrajnych, należy je ustandaryzować aby nie wprowadzać biasu związanego z rzędami wielkości do klasyfikacji. Znormalizujemy tylko zmienne będące na skali przedziałowej lub ilorazowej.
+
+```{r}
+
+piwo_num <- piwo_dane %>% dplyr::select(where(is.numeric))
+
+piwo_num_norm <- as.data.frame(scale(piwo_num))
+
+```
+
+
+# Analiza wartości skrajnych
+
+Tę analizę rozpoczniemy od boxplotów oraz wykresów kwantyl-kwantyl
+
+```{r}
+ggplot(gather(keep(piwo_num_norm, is.numeric)), aes(y = value)) +  
+  geom_boxplot()+
+  ggtitle("Boxploty dla każdej ze zmiennych")+
+  facet_wrap(~ key, scales = "free")
+```
+
+```{r}
+ggplot(gather(keep(piwo_num_norm, is.numeric)), aes(sample = value)) +  
+  stat_qq()+
+  ggtitle("Wykresy kwantyl-kwantyl dla każdej ze zmiennych")+
+  facet_wrap(~ key, scales = "free")
+```
+
+Na podstawie tych dwóch wykresów można stwierdzić, że w naszym zbiorze jest dosyć dużo odstających zmiennych, mogących potencjalnie wpływać na jakość przyszłej klasyfikacji. Potwierdzimy to poprzez regułę 3 odchyleń oraz odpowiednie testy statystyczne.
+
+```{r}
+
+srednie.df = as.data.frame(matrix(nrow=14, ncol=5))
+rownames(srednie.df) <- colnames(piwo_num_norm)
+colnames(srednie.df) <- c("Średnia","Odchylenie","Średnia - 3*sd","Średnia + 3*sd","Ile poza przedziałem")
+
+for(i in 1:14)
+{
+  srednie.df[i,1] <- mean(piwo_num_norm[[i]])
+  srednie.df[i,2] <- sd(piwo_num_norm[[i]])
+  srednie.df[i,3] <- mean(piwo_num_norm[[i]]) - 3*sd(piwo_num_norm[[i]])
+  srednie.df[i,4] <- mean(piwo_num_norm[[i]]) + 3*sd(piwo_num_norm[[i]])
+  srednie.df[i,5] <- length(which(piwo_num_norm[[i]] < mean(piwo_num_norm[[i]]) - 3*sd(piwo_num_norm[[i]]) | piwo_num_norm[[i]] > mean(piwo_num_norm[[i]]) + 3*sd(piwo_num_norm[[i]])))
+}
+
+srednie.df
+```
+
+Zgodnie z oczekiwaniami - średnia wyniosła 0, a odchylenie 1.
+
+Testem Rosnera sprawdzimy, czy liczba wartości skrajnych faktycznie zgadza się z liczbą wartości będących poza 3 odchyleniami standardowymi.
+
+```{r}
+rosner.counts<-as.data.frame(matrix(nrow = 1, ncol = 14))
+colnames(rosner.counts) <- colnames(piwo_num)
+for(i in 1:14)
+{
+  rosner.counts[1,i] <- sum(rosnerTest(piwo_num_norm[[i]], k = srednie.df[i,5])$all.stats['Outlier'])-srednie.df[i,5]
+}
+
+rosner.counts
+```
+
+Ujemne wartości w powyższym dataframe oznaczają, że 'przestrzeliliśmy' używając kryterium 3 sigm, wartość 0 oznacza, że wszystkie k wartości (gdzie k to liczba obserwacji poza przedziałem 3 odchyleń) są outlierami. Okazuje się jednak, że nie ma aż tak wiele tych wartości odstających - nie chcę ich usuwać aby nie tracić informacji. W problemie klasyfikacyjnym każda z informacji jest istotna a zmiennych odstających jest na tyle mało, że nie powinny one wpływać negatywnie na jakość predyktora.
+
+# Wybór jednostek do badania
+
+Ta sekcja będzie krótka - nie pozbywałem się obserwacji wcześniej i w tym etapie też nie decyduję się na taki krok. Uważam, że im więcej informacji tym lepiej, jeśli okaże się, że któryś z predyktorów jest słaby, można go odrzucić na etapie samej analizy. Na tym etapie jednak dokonam rozdzielenia danych na zbiór treningowy i testowy. Od tego miejsca rozpoczęłaby się właściwa analiza.
+
+```{r}
+piwo_dane_nonum <- piwo_dane %>% dplyr::select(where(negate(is.numeric)))
+
+piwo_dane <- bind_cols(piwo_dane_nonum, piwo_num_norm)
+```
+
+Tak prezentuje się zbiór testowy
+
+```{r}
+sample.size <- floor(0.7*nrow(piwo_dane))
+
+set.seed(80085)
+indices = sample(seq_len(nrow(piwo_dane)), size = sample.size)
+
+piwo_dane.train = piwo_dane[indices, ]
+piwo_dane.test = piwo_dane[-indices, ]
+
+piwo_dane.train
+```
+
